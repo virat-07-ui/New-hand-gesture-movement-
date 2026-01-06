@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neon Music + Hand Particles</title>
+<style>
+body{margin:0;overflow:hidden;background:black;font-family:Arial}
+#ui{
+  position:absolute;top:20px;left:20px;color:#0ff;z-index:10
+}
+#ui h3{margin:0;font-size:18px}
+#ui p{margin:2px 0;font-size:12px;opacity:.8}
+#videoBox{
+  position:absolute;bottom:20px;right:20px;
+  width:200px;height:150px;
+  border:2px solid #0ff;border-radius:8px;overflow:hidden;
+  transform:scaleX(-1)
+}
+video{width:100%;height:100%;object-fit:cover}
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <h3>Neon Music + Hand Particles</h3>
+  <p id="modeText">MODE: SPHERE</p>
+  <p>✊ Fist = Attract | 🤏 Pinch = Switch | 🎵 Music = Pulse</p>
+  <p style="opacity:.5;font-size:12px;">Click anywhere to enable microphone 🎤</p>
+</div>
+
+<div id="videoBox">
+  <video id="video" autoplay playsinline></video>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<script>
+// ================= CONFIG =================
+const COUNT = 7000;
+const TEXT_VALUE = "SURYA";
+let shapeIndex = 0;                   // Start with first shape
+const shapes = [
+  "sphere","cube","torus","spiral","dna","wave","heart","star",
+  "cone","cylinder","pyramid","galaxy","vortex","ring","grid",
+  "flower","helix","infinity","explosion","random","text"
+];
+let currentShape = shapes[shapeIndex];  // Start as "sphere"
+let handX = 0, handY = 0;
+let isFist = false, lastSwitch = 0;
+let audioLevel = 0;
+
+// ================= THREE.JS =================
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 1000);
+camera.position.z = 20;
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// ================= PARTICLES =================
+const geo = new THREE.BufferGeometry();
+const pos = new Float32Array(COUNT*3);
+const col = new Float32Array(COUNT*3);
+
+for(let i=0;i<COUNT;i++){
+  pos[i*3] = (Math.random()-0.5)*20;
+  pos[i*3+1] = (Math.random()-0.5)*20;
+  pos[i*3+2] = (Math.random()-0.5)*20;
+  col[i*3]=0; col[i*3+1]=1; col[i*3+2]=1;
+}
+
+geo.setAttribute("position", new THREE.BufferAttribute(pos,3));
+geo.setAttribute("color", new THREE.BufferAttribute(col,3));
+
+const mat = new THREE.PointsMaterial({
+  size:0.09,vertexColors:true,transparent:true,
+  blending:THREE.AdditiveBlending,depthWrite:false
+});
+const points = new THREE.Points(geo,mat);
+scene.add(points);
+
+// ================= TEXT SHAPE =================
+const textPoints = [];
+(function(){
+  const c = document.createElement("canvas"); c.width=600;c.height=200;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle="black";ctx.fillRect(0,0,600,200);
+  ctx.font="bold 120px Arial"; ctx.fillStyle="white"; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillText(TEXT_VALUE,300,100);
+  const d = ctx.getImageData(0,0,600,200).data;
+  for(let y=0;y<200;y+=3){
+    for(let x2=0;x2<600;x2+=3){
+      const i=(y*600+x2)*4;
+      if(d[i]>200){
+        textPoints.push({x:(x2-300)/20, y:(100-y)/20, z:(Math.random()-0.5)*2});
+      }
+    }
+  }
+})();
+
+// ================= SHAPE POSITIONS =================
+function shapePos(i, t){
+  const a = i/COUNT*Math.PI*2;
+  const u = (i%100)/100*Math.PI*2;
+  const v = Math.floor(i/100)/(COUNT/100)*Math.PI;
+  const pulse = 1+audioLevel*3;
+
+  switch(t){
+    case "sphere": return {x:7*pulse*Math.sin(v)*Math.cos(u), y:7*pulse*Math.sin(v)*Math.sin(u), z:7*pulse*Math.cos(v)};
+    case "cube": return {x:(i%30-15)/2*pulse, y:(Math.floor(i/30)%30-15)/2*pulse, z:(i/COUNT-.5)*14};
+    case "torus": return {x:(6+2*Math.cos(v))*Math.cos(u)*pulse, y:(6+2*Math.cos(v))*Math.sin(u)*pulse, z:2*Math.sin(v)};
+    case "spiral": return {x:Math.cos(a*8)*a*2*pulse, y:Math.sin(a*8)*a*2*pulse, z:(i/COUNT-.5)*15};
+    case "dna": return {x:Math.cos(a*10)*4*pulse, y:Math.sin(a*10)*4*pulse, z:(i/COUNT-.5)*14};
+    case "wave": let x=(i/COUNT-.5)*20; return {x:x, y:Math.sin(x+Date.now()*0.004)*4*pulse, z:0};
+    case "heart": return {x:4*Math.pow(Math.sin(a*6),3)*pulse, y:(3*Math.cos(a*6)-1.5*Math.cos(2*a*6))*pulse, z:0};
+    case "star": return {x:Math.cos(a*5)*7*pulse, y:Math.sin(a*5)*7*pulse, z:Math.sin(a)*3};
+    case "cone": return {x:Math.cos(a)*a/3*pulse, y:Math.sin(a)*a/3*pulse, z:(i/COUNT-.5)*14};
+    case "cylinder": return {x:Math.cos(a)*5*pulse, y:Math.sin(a)*5*pulse, z:(i/COUNT-.5)*14};
+    case "pyramid": return {x:(i%20-10)/2, y:(Math.floor(i/20)%20-10)/2, z:(i/COUNT-.5)*14};
+    case "galaxy": return {x:Math.cos(a)*a*2*pulse, y:Math.sin(a)*a*2*pulse, z:Math.sin(a*3)*5};
+    case "vortex": return {x:Math.cos(a)*6, y:Math.sin(a)*6, z:a*2};
+    case "ring": return {x:Math.cos(a)*8, y:Math.sin(a)*8, z:0};
+    case "grid": return {x:(i%50-25)/2, y:(Math.floor(i/50)%50-25)/2, z:0};
+    case "flower": return {x:Math.cos(a)*Math.sin(a*6)*8, y:Math.sin(a)*Math.sin(a*6)*8, z:0};
+    case "helix": return {x:Math.cos(a)*4, y:Math.sin(a)*4, z:a*2};
+    case "infinity": return {x:6*Math.sin(a), y:3*Math.sin(a*2), z:0};
+    case "explosion": return {x:Math.cos(a)*7*Math.random()*pulse, y:Math.sin(a)*7*Math.random()*pulse, z:(i/COUNT-.5)*14};
+    case "random": return {x:(Math.random()-0.5)*15, y:(Math.random()-0.5)*15, z:(Math.random()-0.5)*15};
+    case "text": return textPoints[i%textPoints.length];
+    default: return {x:0, y:0, z:0};
+  }
+}
+
+// ================= AUDIO =================
+let actx, analyserMic, audioData;
+function startAudio(){
+  actx = new (window.AudioContext||window.webkitAudioContext)();
+  analyserMic = actx.createAnalyser();
+  analyserMic.fftSize = 256;
+  audioData = new Uint8Array(analyserMic.frequencyBinCount);
+  navigator.mediaDevices.getUserMedia({audio:true}).then(stream=>{
+    const src = actx.createMediaStreamSource(stream);
+    src.connect(analyserMic);
+  });
+}
+window.addEventListener("click",()=>startAudio(),{once:true});
+
+// ================= HAND TRACKING =================
+const video = document.getElementById("video");
+const hands = new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+hands.setOptions({maxNumHands:1,minDetectionConfidence:.6,minTrackingConfidence:.6});
+hands.onResults(r=>{
+  if(r.multiHandLandmarks){
+    const l=r.multiHandLandmarks[0];
+    handX=(.5-l[8].x)*25; handY=(.5-l[8].y)*18;
+    isFist=Math.hypot(l[8].x-l[5].x,l[8].y-l[5].y)<.08;
+    if(Math.hypot(l[4].x-l[8].x,l[4].y-l[8].y)<.03 && Date.now()-lastSwitch>900){
+      shapeIndex=(shapeIndex+1)%shapes.length;
+      currentShape=shapes[shapeIndex];
+      document.getElementById("modeText").innerText="MODE: "+currentShape.toUpperCase();
+      lastSwitch=Date.now();
+    }
+  }
+});
+new Camera(video,{onFrame:async()=>hands.send({image:video}),width:640,height:480}).start();
+
+// ================= ANIMATE =================
+function animate(){
+  requestAnimationFrame(animate);
+  if(analyserMic && audioData){
+    analyserMic.getByteFrequencyData(audioData);
+    audioLevel = audioData.reduce((a,b)=>a+b)/audioData.length/255;
+  } else audioLevel = 0;
+
+  const p = geo.attributes.position.array;
+  const c = geo.attributes.color.array;
+
+  for(let i=0;i<COUNT;i++){
+    const id=i*3;
+    const t = shapePos(i,currentShape);
+    if(isFist){
+      p[id]+=(handX-p[id])*.08;
+      p[id+1]+=(handY-p[id+1])*.08;
+      c[id]=1; c[id+1]=.3; c[id+2]=0.5;
+    } else{
+      p[id]+=(t.x-p[id])*.05;
+      p[id+1]+=(t.y-p[id+1])*.05;
+      p[id+2]+=(t.z-p[id+2])*.05;
+      const hue=(Date.now()*0.0005+i/COUNT)%1;
+      const col = new THREE.Color().setHSL(hue,1,0.6+audioLevel*0.4);
+      c[id]=col.r; c[id+1]=col.g; c[id+2]=col.b;
+    }
+  }
+
+  geo.attributes.position.needsUpdate=true;
+  geo.attributes.color.needsUpdate=true;
+  points.rotation.y += 0.003 + audioLevel*0.02;
+  renderer.render(scene,camera);
+}
+animate();
+
+// ================= RESIZE =================
+window.addEventListener("resize",()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>
